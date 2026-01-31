@@ -36,22 +36,107 @@ class Quality:
     hd: str = "hd"
 
 async def _save_images(attachments: list[Attachment]):
-    # TODO:
-    #  1. Create DIAL bucket client
-    #  2. Iterate through Images from attachments, download them and then save here
-    #  3. Print confirmation that image has been saved locally
-    raise NotImplementedError
+    # 1. Create DIAL bucket client
+    async with DialBucketClient(api_key=API_KEY, base_url=DIAL_URL) as client:
+        # 2. Iterate through Images from attachments, download them and then save here
+        for attachment in attachments:
+            if attachment.url:
+                # Download the image
+                image_data = await client.get_file(attachment.url)
+
+                # Generate a filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                # Determine file extension from mime type
+                file_extension = ''
+                if attachment.type:
+                    if 'png' in attachment.type.lower():
+                        file_extension = '.png'
+                    elif 'jpeg' in attachment.type.lower() or 'jpg' in attachment.type.lower():
+                        file_extension = '.jpg'
+                    elif 'gif' in attachment.type.lower():
+                        file_extension = '.gif'
+                    elif 'webp' in attachment.type.lower():
+                        file_extension = '.webp'
+                    else:
+                        # Default to png if unknown
+                        file_extension = '.png'
+                else:
+                    file_extension = '.png'
+
+                filename = f"generated_image_{timestamp}_{attachment.title or 'image'}{file_extension}"
+
+                # Save the image locally
+                with open(filename, 'wb') as f:
+                    f.write(image_data)
+
+                # 3. Print confirmation that image has been saved locally
+                print(f"Image saved locally: {filename}")
 
 
 def start() -> None:
-    # TODO:
-    #  1. Create DialModelClient
-    #  2. Generate image for "Sunny day on Bali"
-    #  3. Get attachments from response and save generated message (use method `_save_images`)
-    #  4. Try to configure the picture for output via `custom_fields` parameter.
-    #    - Documentation: See `custom_fields`. https://dialx.ai/dial_api#operation/sendChatCompletionRequest
-    #  5. Test it with the 'imagegeneration@005' (Google image generation model)
-    raise NotImplementedError
+    # 1. Create DialModelClient
+    client = DialModelClient(
+        endpoint=DIAL_CHAT_COMPLETIONS_ENDPOINT,
+        deployment_name="dall-e-3",
+        api_key=API_KEY
+    )
 
+    # 2. Generate image for "Sunny day on Bali"
+    prompt = "Sunny day on Bali"
+    message = Message(
+        role=Role.USER,
+        content=prompt
+    )
+
+    # 4. Try to configure the picture for output via `custom_fields` parameter.
+    custom_fields = {
+        "size": Size.square,
+        "quality": Quality.hd,
+        "style": Style.vivid
+    }
+
+    print(f"Generating image with prompt: '{prompt}'")
+    print(f"Custom fields: {custom_fields}")
+
+    response = client.get_completion(
+        messages=[message],
+        custom_fields=custom_fields
+    )
+
+    print(f"Response: {response}")
+
+    # 3. Get attachments from response and save generated message (use method `_save_images`)
+    if response.custom_content and response.custom_content.attachments:
+        print(f"Found {len(response.custom_content.attachments)} attachment(s)")
+        asyncio.run(_save_images(response.custom_content.attachments))
+    else:
+        print("No attachments found in response")
+
+    # 5. Test it with the 'imagegeneration@005' (Google image generation model)
+    # Note: This may fail if the model is not available in your DIAL deployment
+    print("\n--- Testing with Google image generation model ---")
+    try:
+        client_google = DialModelClient(
+            endpoint=DIAL_CHAT_COMPLETIONS_ENDPOINT,
+            deployment_name="imagegeneration@005",
+            api_key=API_KEY
+        )
+
+        response_google = client_google.get_completion(
+            messages=[message],
+            custom_fields=custom_fields
+        )
+
+        print(f"Google Response: {response_google}")
+
+        if response_google.custom_content and response_google.custom_content.attachments:
+            print(f"Found {len(response_google.custom_content.attachments)} attachment(s)")
+            asyncio.run(_save_images(response_google.custom_content.attachments))
+        else:
+            print("No attachments found in Google response")
+    except Exception as e:
+        print(f"Failed to generate image with Google model: {e}")
+        print("This is expected if the model is not available in your DIAL deployment")
 
 start()
